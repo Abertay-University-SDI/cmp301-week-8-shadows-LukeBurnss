@@ -17,13 +17,13 @@ void App1::init(HINSTANCE hinstance, HWND hwnd, int screenWidth, int screenHeigh
 	model = new AModel(renderer->getDevice(), "res/teapot.obj");
 	textureMgr->loadTexture(L"brick", L"res/brick1.dds");
 
+	lightBulb = new SphereMesh(renderer->getDevice(), renderer->getDeviceContext());
+	orthoMesh = new OrthoMesh(renderer->getDevice(), renderer->getDeviceContext(), screenWidth / 4, screenHeight / 4, -screenWidth / 2.7, screenHeight / 2.7);
+
 	// initial shaders
 	textureShader = new TextureShader(renderer->getDevice(), hwnd);
 	depthShader = new DepthShader(renderer->getDevice(), hwnd);
 	shadowShader = new ShadowShader(renderer->getDevice(), hwnd);
-	orthoMesh = new OrthoMesh(renderer->getDevice(), renderer->getDeviceContext(), screenWidth / 2, screenHeight / 2, -screenWidth / 2, screenHeight / 2);
-
-	renderTexture = new RenderTexture(renderer->getDevice(), screenWidth, screenHeight, SCREEN_NEAR, SCREEN_DEPTH);
 
 	// Variables for defining shadow map
 	int shadowmapWidth = 16000;
@@ -35,14 +35,16 @@ void App1::init(HINSTANCE hinstance, HWND hwnd, int screenWidth, int screenHeigh
 	shadowMap = new ShadowMap(renderer->getDevice(), shadowmapWidth, shadowmapHeight);
 
 	// Configure directional light
+	lightDirection = XMFLOAT3(0.0f, -0.7f, 0.7f);
+	lightPosition = XMFLOAT3(0.f, 0.f, -10.f);
+	lightRotY = 0.0f;
+
 	light = new Light();
 	light->setAmbientColour(0.3f, 0.3f, 0.3f, 1.0f);
 	light->setDiffuseColour(1.0f, 1.0f, 1.0f, 1.0f);
-	light->setDirection(0.0f, -0.7f, 0.7f);
-	light->setPosition(0.f, 0.f, -10.f);
+	light->setDirection(lightDirection.x, lightDirection.y, lightDirection.z);
+	light->setPosition(lightPosition.x, lightPosition.y, lightPosition.z);
 	light->generateOrthoMatrix((float)sceneWidth, (float)sceneHeight, 0.1f, 100.f);
-
-	rotateY = 0.0f;
 }
 
 App1::~App1()
@@ -51,7 +53,6 @@ App1::~App1()
 	BaseApplication::~BaseApplication();
 
 	// Release the Direct3D object.
-
 }
 
 
@@ -65,6 +66,10 @@ bool App1::frame()
 		return false;
 	}
 	
+	// Update Lights
+	light->setDirection(lightDirection.x, lightDirection.y, lightDirection.z);
+	light->setPosition(lightPosition.x, lightPosition.y, lightPosition.z);
+
 	// Render the graphics.
 	result = render();
 	if (!result)
@@ -103,13 +108,16 @@ void App1::depthPass()
 	depthShader->setShaderParameters(renderer->getDeviceContext(), worldMatrix, lightViewMatrix, lightProjectionMatrix);
 	depthShader->render(renderer->getDeviceContext(), mesh->getIndexCount());
 
-
+	// Set transformations
 	worldMatrix = renderer->getWorldMatrix();
-	worldMatrix = XMMatrixTranslation(0.f, 7.f, 5.f);
-	XMMATRIX rotateMatrix = XMMatrixRotationY(rotateY);
 	XMMATRIX scaleMatrix = XMMatrixScaling(0.5f, 0.5f, 0.5f);
-	worldMatrix = XMMatrixMultiply(worldMatrix, scaleMatrix);
-	worldMatrix = XMMatrixMultiply(worldMatrix, rotateMatrix);
+	XMMATRIX rotateMatrix = XMMatrixRotationY(lightRotY);
+	XMMATRIX translateMatrix = XMMatrixTranslation(0.f, 7.f, 5.f);
+
+	// Combine transformations: scale -> rotate -> translate
+	worldMatrix = XMMatrixMultiply(scaleMatrix, rotateMatrix);
+	worldMatrix = XMMatrixMultiply(worldMatrix, translateMatrix);
+
 	// Render model
 	model->sendData(renderer->getDeviceContext());
 	depthShader->setShaderParameters(renderer->getDeviceContext(), worldMatrix, lightViewMatrix, lightProjectionMatrix);
@@ -134,23 +142,37 @@ void App1::finalPass()
 	worldMatrix = XMMatrixTranslation(-50.f, 0.f, -10.f);
 	// Render floor
 	mesh->sendData(renderer->getDeviceContext());
-	shadowShader->setShaderParameters(renderer->getDeviceContext(), worldMatrix, viewMatrix, projectionMatrix, 
-		textureMgr->getTexture(L"brick"), shadowMap->getDepthMapSRV(), light);
+	shadowShader->setShaderParameters(renderer->getDeviceContext(), worldMatrix, viewMatrix, projectionMatrix, textureMgr->getTexture(L"brick"), shadowMap->getDepthMapSRV(), light);
 	shadowShader->render(renderer->getDeviceContext(), mesh->getIndexCount());
 
-	// Render model
+	// Set transformations
 	worldMatrix = renderer->getWorldMatrix();
-	worldMatrix = XMMatrixTranslation(0.f, 7.f, 5.f);
-	XMMATRIX rotateMatrix = XMMatrixRotationY(rotateY);
 	XMMATRIX scaleMatrix = XMMatrixScaling(0.5f, 0.5f, 0.5f);
-	worldMatrix = XMMatrixMultiply(worldMatrix, scaleMatrix);
-	worldMatrix = XMMatrixMultiply(worldMatrix, rotateMatrix);
+	XMMATRIX rotateMatrix = XMMatrixRotationY(lightRotY);
+	XMMATRIX translateMatrix = XMMatrixTranslation(0.f, 7.f, 5.f);
 
+	// Combine transformations: scale -> rotate -> translate
+	worldMatrix = XMMatrixMultiply(scaleMatrix, rotateMatrix);
+	worldMatrix = XMMatrixMultiply(worldMatrix, translateMatrix);
+
+	// Render model
 	model->sendData(renderer->getDeviceContext());
 	shadowShader->setShaderParameters(renderer->getDeviceContext(), worldMatrix, viewMatrix, projectionMatrix, textureMgr->getTexture(L"brick"), shadowMap->getDepthMapSRV(), light);
 	shadowShader->render(renderer->getDeviceContext(), model->getIndexCount());
-	rotateMatrix = XMMatrixRotationY(0);
-	worldMatrix = XMMatrixMultiply(scaleMatrix, rotateMatrix);
+
+	// Render Sphere at Light's Position
+	// Create an identity world matrix before applying translation
+	worldMatrix = renderer->getWorldMatrix();
+	XMMATRIX lightTranslate = XMMatrixTranslation(lightPosition.x, lightPosition.y, lightPosition.z);
+	worldMatrix = XMMatrixMultiply(worldMatrix, lightTranslate);
+
+
+	// Set the data and render the sphere as a "light bulb"
+	lightBulb->sendData(renderer->getDeviceContext());
+	shadowShader->setShaderParameters(renderer->getDeviceContext(), worldMatrix, viewMatrix, projectionMatrix, textureMgr->getTexture(L""), shadowMap->getDepthMapSRV(), light);
+	shadowShader->render(renderer->getDeviceContext(), lightBulb->getIndexCount());
+
+	worldMatrix = renderer->getWorldMatrix();
 
 	// Requires 2D rendering and an ortho mesh.
 	renderer->setZBuffer(false);
@@ -164,6 +186,7 @@ void App1::finalPass()
 	renderer->setZBuffer(true);
 
 	gui();
+
 	renderer->endScene();
 }
 
@@ -179,7 +202,9 @@ void App1::gui()
 	// Build UI
 	ImGui::Text("FPS: %.2f", timer->getFPS());
 	ImGui::Checkbox("Wireframe mode", &wireframeToggle);
-	ImGui::SliderFloat("Y Rotate", &rotateY, -2, 2);
+	ImGui::SliderFloat("Model Y Rotate", &lightRotY, -6.3, 6.3);
+	ImGui::SliderFloat3("Light Direction", &lightDirection.x, -1, 1);
+	ImGui::SliderFloat3("Light Position", &lightPosition.x, -50, 50);
 
 	// Render UI
 	ImGui::Render();

@@ -28,8 +28,7 @@ private:
 	TextureShader* textureShader;
 	PlaneMesh* mesh;
 	OrthoMesh* orthoMesh;
-
-	RenderTexture* renderTexture;
+	SphereMesh* lightBulb;
 
 	Light* light;
 	AModel* model;
@@ -38,7 +37,10 @@ private:
 
 	ShadowMap* shadowMap;
 
-	float rotateY;
+	float lightRotY;
+
+	XMFLOAT3 lightDirection;
+	XMFLOAT3 lightPosition;
 };
 
 #endif
